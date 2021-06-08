@@ -1,3 +1,6 @@
+var L = require('leaflet');
+var Tabulator = require('tabulator-tables');
+
 /////////////////
 // Leaflet map //
 /////////////////
@@ -30,6 +33,9 @@ const fetchInitialStreetlightsData = async () => {
         //put data into data table
         table.setData(streetlightsData);
 
+        //set currentData so that it can be exported to a csv
+        currentData = streetlightsData;
+
     }
 }
 
@@ -57,8 +63,10 @@ const makePointsCluster = (pointsData, mymap) => {
                        watts: ${pointsData[i].watts} <br>
                        work_effec: ${pointsData[i].work_effec} <br>
                        <br>
-                       <button type="button" class="btn btn-primary popupBtn" id="editRecordBtn" onclick="editRecordClick()">Edit</button>
-                       <button type="button" class="btn btn-primary popupBtn" id="deleteRecordBtn"  onclick="deleteRecordClick()">Delete</button>
+                       <button type="button" class="btn btn-primary popupBtn" data-bs-toggle="modal" data-bs-target="#editRecordModal" 
+                       onclick="editRecord(${pointsData[i].id},${pointsData[i].base_colo},${pointsData[i].contract_n},'${pointsData[i].decal_colo}',${pointsData[i].decal_numb},${pointsData[i].lumens},${pointsData[i].mount_heig},${pointsData[i].nom_volt},'${pointsData[i].owner}','${pointsData[i].style}',${pointsData[i].watts},'${pointsData[i].work_effec}')">Edit</button>
+                       
+                       <button type="button" class="btn btn-primary popupBtn" data-idNumDelete="${pointsData[i].id}" id="deleteRecordBtn" onclick="deleteRecord()">Delete</button>
                        `;
 
         const lat = pointsData[i].latitude;
@@ -147,36 +155,170 @@ const table = new Tabulator("#dataTable", {
 // add event handlers to each button//
 //////////////////////////////////////
 
-const exportClick = (event) => {
-    event.preventDefault();
+//This holds current table data
+let currentData = {};
 
-    console.log('export button click');
+const exportToCSV = async () => {
+    // takes current filtered version of dataset and exports to csv
+    // uses global currentData variable
+
+    console.log(currentData);
+    
+    // //convert array to csv
+    const csvString = convertToCSV(currentData);
+    
+    // download filtered dataset as a csv file
+    download(csvString, 'streetlightsData.csv', 'text/csv;encoding:utf-8');
 };
 
+function convertToCSV(objArray) {
+    // converts JSON object to CSV
 
-const addRecordClick = (event) => {
-    event.preventDefault();
+    var array = typeof objArray != 'object' ? JSON.parse(objArray) : objArray;
+    var str = '';
 
-    console.log('add record click');
-};
+    for (var i = 0; i < array.length; i++) {
+        var line = '';
+        for (var index in array[i]) {
+            if (line != '') line += ','
+
+            line += array[i][index];
+        }
+        str += line + '\r\n';
+    }
+    //returns CSV as a string
+    return str;
+}
+
+var download = function(content, fileName, mimeType) {
+    // The download function takes a CSV string, the filename and mimeType as parameters
+    // Scroll/look down at the bottom of this snippet to see how download is called
+
+    var a = document.createElement('a');
+    mimeType = mimeType || 'application/octet-stream';
+    
+    if (navigator.msSaveBlob) { // IE10
+    navigator.msSaveBlob(new Blob([content], {
+        type: mimeType
+        }), fileName);
+    } else if (URL && 'download' in a) { //html5 A[download]
+    a.href = URL.createObjectURL(new Blob([content], {
+        type: mimeType
+    }));
+    a.setAttribute('download', fileName);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    } else {
+    location.href = 'data:application/octet-stream,' + encodeURIComponent(content); // only this mime type is supported
+    }
+}
 
 
-const editRecordClick = (event) => {
-    // event.preventDefault();
-
-    console.log('edit record click');
-};
-
-
-const deleteRecordClick = (event) => {
-    // event.preventDefault();
-
-    console.log('delete record click');
-};
 
 // select other button elements in DOM
-const exportBtn = document.querySelector('#exportBtn').addEventListener('click', exportClick);
-const addRecordBtn = document.querySelector('#addRecordBtn').addEventListener('click', addRecordClick);
+const exportBtn = document.querySelector('#exportBtn').addEventListener('click', exportToCSV);
+
+
+const editRecord = async (recordID, base_colo, contract_n, decal_colo, decal_numb, lumens, mount_heig, nom_volt, owner, style, watts, work_effec) => {
+    // allows editing chosen record
+
+    // use all elements in 
+    //recordID is id of chosen record, passed in from popup window
+    document.querySelector('#editID').innerHTML = recordID;
+    document.querySelector('#editbase_colo').setAttribute('value', base_colo);
+    document.querySelector('#editcontract_n').setAttribute('value', contract_n);
+    document.querySelector('#editdecal_colo').value = decal_colo;
+    document.querySelector('#editdecal_numb [value="' + decal_numb + '"]').selected = true;
+    document.querySelector('#editlumens [value="' + lumens + '"]').selected = true;
+    document.querySelector('#editmount_heig').innerHTML = mount_heig;
+    document.querySelector('#editnom_volt').innerHTML = nom_volt;
+    document.querySelector('#editowner').value = owner;
+    document.querySelector('#editstyle').value = style;
+    document.querySelector('#editwatts [value="' + watts + '"]').selected = true;
+    
+    //need to do some string slicing to set date
+    // '2015-12-31';  // date must be in this format
+    work_effec = work_effec.slice(0, work_effec.indexOf('T'));
+    document.querySelector('#editwork_effec').value = work_effec;
+};
+
+
+const saveEditRecord = async () => {
+    // executes fetch request to update chosen record
+
+    //select all updated record values
+    const recordID = document.querySelector('#editID').innerHTML;
+    
+    let base_colo = document.querySelector('#editbase_colo').value.trim();
+    if (!base_colo) {base_colo = null};
+    
+    let contract_n = document.querySelector('#editcontract_n').value.trim();
+    if (!contract_n) {contract_n = null};
+    
+    let decal_colo = document.querySelector('#editdecal_colo');
+    decal_colo = decal_colo.options[decal_colo.selectedIndex].text;
+    if (decal_colo === "Choose...") {decal_colo = null};
+
+    let decal_numb = document.querySelector('#editdecal_numb');
+    decal_numb = decal_numb.options[decal_numb.selectedIndex].text;
+    if (decal_numb === "Choose...") {decal_numb = null};
+
+    let lumens = document.querySelector('#editlumens');
+    lumens = lumens.options[lumens.selectedIndex].text;
+    if (lumens === "Choose...") {lumens = null};
+ 
+    let mount_heig = document.querySelector('#editmount_heig').value.trim();
+    if (!mount_heig) {mount_heig = null};
+
+    let nom_volt = document.querySelector('#editnom_volt').value.trim();
+    if (!nom_volt) {nom_volt = null};
+
+    let owner = document.querySelector('#editowner');
+    owner = owner.options[owner.selectedIndex];
+    if (owner === "Choose..." || owner === 'None' || typeof(owner) == 'undefined') {owner = null};
+
+    let style = document.querySelector('#editstyle');
+    style = style.options[style.selectedIndex].text;
+    if (style === "Choose...") {style = null};
+
+    let watts = document.querySelector('#editwatts');
+    watts = watts.options[watts.selectedIndex].text;
+    if (watts === "Choose...") {watts = null};
+
+    let work_effec = document.querySelector('#editwork_effec').value.trim();
+    if (work_effec === '') {work_effec = null};
+    console.log(recordID);
+    console.log(recordID, base_colo, contract_n, decal_colo, decal_numb, lumens, mount_heig, nom_volt, owner, style, watts, work_effec);
+    // make fetch request to PUT route to update record
+    const response = await fetch(`/api/streetlights/edit/${recordID}`, {
+        method: 'PUT',
+        body: JSON.stringify({ recordID, base_colo, contract_n, decal_colo, decal_numb, lumens, mount_heig, nom_volt, owner, style, watts, work_effec }),
+        headers: {'Content-Type': 'application/json'}
+    });
+    if (response.ok) {
+        alert('Record Updated!');
+        //reload page
+        window.location.reload();        
+    }
+}
+
+const deleteRecord = async () => {
+    // deletes the chosen record when clicking 'delete' button in popup window
+    
+    // select data-idNumDelete attribute of 'edit' button, which holds value of record id
+    const recordID = document.querySelector('#deleteRecordBtn').getAttribute('data-idNumDelete');  
+
+    // send fetch request to delete chosen record
+    const response = await fetch(`/api/streetlights/${recordID}`, {
+        method: 'DELETE'
+    });
+    if (response.ok) {
+        alert('Record Deleted!');
+        //reload page
+        window.location.reload();
+    }
+};
 
 
 
@@ -184,9 +326,8 @@ const addRecordBtn = document.querySelector('#addRecordBtn').addEventListener('c
 // Modal Buttons //
 ///////////////////
 
-// 'Go!' button in data filter modal
+// 'Filter' button in data filter modal
 const makeDataFilterBtn = document.querySelector('#makeDataFilterBtn').addEventListener('click', dataFilter)
-
 
 const dataFetch = async () => {
     // makes fetch request to database with user-provided parameters
@@ -202,9 +343,6 @@ const dataFetch = async () => {
     let lumens = document.querySelector('#lumens').value.trim();
     if (lumens === "Choose...") {lumens = null};
 
-    // log user choices
-    console.log(decal_colo, owner, lumens)
-
     //choose fetch response to make based on user filters
     if (decal_colo === null && lumens != null) {
         // if no decal_colo but yes lumens
@@ -219,6 +357,8 @@ const dataFetch = async () => {
             createFilteredMap(filteredData);
             // put filtered data into data table
             table.setData(filteredData);
+            //set currentData so that it can be exported to a csv
+            currentData = filteredData;
         }
     } else if (decal_colo === null && lumens === null) {
         // if no decal and no lumens
@@ -233,6 +373,8 @@ const dataFetch = async () => {
             createFilteredMap(filteredData);
             // put filtered data into data table
             table.setData(filteredData);
+            //set currentData so that it can be exported to a csv
+            currentData = filteredData;
         }
     } else if (decal_colo != null && lumens === null) {
         // if yes decal_colo and no lumens
@@ -247,6 +389,8 @@ const dataFetch = async () => {
             createFilteredMap(filteredData);
             // put filtered data into data table
             table.setData(filteredData);
+            //set currentData so that it can be exported to a csv
+            currentData = filteredData;
         }
     } else if (decal_colo != null && lumens != null) {
         // if yes decal_colo and yes lumens
@@ -261,14 +405,83 @@ const dataFetch = async () => {
             createFilteredMap(filteredData);
             // put filtered data into data table
             table.setData(filteredData);
+            //set currentData so that it can be exported to a csv
+            currentData = filteredData;
         }
     }
 }
 
 
+const addRecord = async () => {
+    // adds streetlight record to database
 
+    // start by selecting values of all input fields
+    let base_colo = document.querySelector('#base_colo_add').value.trim();
+    if (!base_colo) {base_colo = null};
+    
+    let contract_n = document.querySelector('#contract_n_add').value.trim();
+    if (!contract_n) {contract_n = null};
+    
+    let decal_colo = document.querySelector('#decal_colo_add');
+    decal_colo = decal_colo.options[decal_colo.selectedIndex].text;
+    if (decal_colo === "Choose...") {decal_colo = null};
 
+    let decal_numb = document.querySelector('#decal_numb_add');
+    decal_numb = decal_numb.options[decal_numb.selectedIndex].text;
+    if (decal_numb === "Choose...") {decal_numb = null};
 
+    //gets current datetime stamp
+    let install_da = new Date().toLocaleString();
+
+    let lumens = document.querySelector('#lumens_add');
+    lumens = lumens.options[lumens.selectedIndex].text;
+    if (lumens === "Choose...") {lumens = null};
+ 
+    let mount_heig = document.querySelector('#mount_heig_add').value.trim();
+    if (!mount_heig) {mount_heig = null};
+
+    let nom_volt = document.querySelector('#nom_volt_add').value.trim();
+    if (!nom_volt) {nom_volt = null};
+
+    let owner = document.querySelector('#owner_add');
+    owner = owner.options[owner.selectedIndex].text;
+    if (owner === "Choose..." || owner === 'None') {owner = null};
+
+    let style = document.querySelector('#style_add');
+    style = style.options[style.selectedIndex].text;
+    if (style === "Choose...") {style = null};
+
+    let watts = document.querySelector('#watts_add');
+    watts = watts.options[watts.selectedIndex].text;
+    if (watts === "Choose...") {watts = null};
+
+    let work_effec = document.querySelector('#work_effec_add').value.trim();
+    if (work_effec === '') {work_effec = null};
+
+    //latitude and longitude are required values
+    let latitude = document.querySelector('#latitude_add').value.trim();
+    let longitude = document.querySelector('#longitude_add').value.trim();
+    
+
+    // take all values and make fetch request to database to create new streetlight record
+    const response = await fetch('/api/streetlights', {
+        method: 'POST',
+        // body: JSON.stringify({ base_colo, contract_n, decal_colo, decal_numb, install_da, lumens, mount_heig, nom_volt, owner, style, watts, work_effec, latitude, longitude }),
+        body: JSON.stringify({ base_colo, contract_n, decal_colo, decal_numb, install_da, lumens, mount_heig, nom_volt, owner, style, watts, work_effec, latitude, longitude }),
+        headers: { 'Content-Type': 'application/json' },
+    });
+    if (response.ok) {
+        alert('Record Added')
+        //reload page in browser
+        window.location.reload();
+    } else {
+        alert('Invalid input');
+    }
+
+}
+
+// 'Add' button in Add Record modal
+const addBtn = document.querySelector('#addBtn').addEventListener('click', addRecord);
 
 
 // execute on page load
